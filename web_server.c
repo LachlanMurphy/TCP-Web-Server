@@ -22,8 +22,9 @@
 #include "array.h"
 
 #define BUFFERSIZE 1024
+#define ROOT_DIR "./www"
 
-char* res = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 12\r\n\r\nHello world!";
+char* res = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 12\r\n\r\n";
 
 // sigint handler
 void sigint_handler(int sig);
@@ -157,13 +158,27 @@ void* socket_handler(void* arg) {
 		memcpy(req[i], tmp, BUFFERSIZE);
 	}
 
+	char file_name[BUFFERSIZE];
+	strncpy(file_name, ROOT_DIR, strlen(ROOT_DIR));
+	strcat(file_name, req[1]);
+	printf("%s\n", file_name);
+
 	// attempt to access file requested
 	if (!access(req[1], F_OK)) {
 		// file exists, send it
-		
+		// send file
+		FILE* file = fopen(file_name, "r");
+		int n = 0;
+		send(*args->clientfd, res, strlen(res), 0);
+		while (1) {
+			n = fread(buf, 1, BUFFERSIZE, file);
+			if (n <= 0) break;
+			send(*args->clientfd, buf, n, 0);
+		}
+		fclose(file);
+	} else {
+		error("ERROR opening file");
 	}
-
-	send(*args->clientfd, res, strlen(res), 0);
 
 	close(*args->clientfd);
 
