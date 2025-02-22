@@ -11,19 +11,20 @@ int  array_init(array *s) {
     return 0;
 }
 
-int  array_put (array *s, char *hostname) {
+int  array_put (array *s, pthread_t *thread) {
     sem_wait(&s->available_items);
       sem_wait(&s->mutex);
-            strncpy(s->arr[s->size++], hostname, MAX_NAME_LENGTH);
+            s->arr[s->size++] = thread;
+            // strncpy(s->arr[s->size++], hostname, MAX_NAME_LENGTH);
       sem_post(&s->mutex);
     sem_post(&s->free_items);
     return 0;
 }
 
-int  array_get (array *s, char **hostname) {
+int  array_get (array *s, pthread_t **thread) {
     sem_wait(&s->free_items);
       sem_wait(&s->mutex);
-        strncpy(*hostname, s->arr[--s->size], MAX_NAME_LENGTH);
+        *thread = s->arr[--s->size];
       sem_post(&s->mutex);
     sem_post(&s->available_items);
     return 0;
@@ -38,14 +39,14 @@ void array_free(array *s) {
 void array_end(array *s, char *signal) {
     sem_wait(&s->available_items);
       sem_wait(&s->mutex);
-            strncpy(s->arr[s->size++], s->arr[0], MAX_NAME_LENGTH);
-            strncpy(s->arr[0], signal, MAX_NAME_LENGTH);
+            // strncpy(s->arr[s->size++], s->arr[0], MAX_NAME_LENGTH);
+            // strncpy(s->arr[0], signal, MAX_NAME_LENGTH);
       sem_post(&s->mutex);
     sem_post(&s->free_items);
 }
 
 void print_array(array *s) {
     for (int i = 0; i < s->size; i++) {
-        printf("[%d]: %s\n", i, s->arr[i]);
+      printf("[%d]: %p\n", i, (void *) s->arr[i]);
     }
 }

@@ -124,14 +124,16 @@ int main(int argc, char** argv) {
 		pthread_create(thread_id, NULL, socket_handler, socket_arg);
 
 		// add new thread to array
-		array_put(&socks, (char *) thread_id);
+		array_put(&socks, thread_id);
 
 		// detatch thread so resources are unallocated independent of parent thread
 		pthread_detach(*thread_id);
+		thread_id = NULL;
     }
 }
 
 void sigint_handler(int sig) {
+	print_array(&socks);
 	array_free(&socks);
 	printf("Server closed on SIGINT\n");
 	exit(0);
@@ -140,20 +142,36 @@ void sigint_handler(int sig) {
 void* socket_handler(void* arg) {
 	socket_arg_t* args = (socket_arg_t *) arg;
 	char buf[BUFFERSIZE];
+
+	// read in message
 	read(*args->clientfd, buf, BUFFERSIZE);
 	printf("%s\n", buf);
+	buf[strcspn(buf, "\n")] = '\0';
+
+	// parse message
+	char req[3][BUFFERSIZE]; // req[0]=method ; req[1]=URI ; req[2]=version
+	char* tmp = strtok(buf, " ");
+	memcpy(req[0], tmp, BUFFERSIZE);
+	for (int i = 1; i < 3; i++) {
+		tmp = strtok(NULL, " ");
+		memcpy(req[i], tmp, BUFFERSIZE);
+	}
+
+	// attempt to access file requested
+	if (!access(req[1], F_OK)) {
+		// file exists, send it
+		
+	}
 
 	send(*args->clientfd, res, strlen(res), 0);
 
 	close(*args->clientfd);
 
 	// free up the memory usage now
-	char *ret = malloc(MAX_NAME_LENGTH);
 	pthread_t* to_free = NULL;
-	array_get(args->arr, &ret);
-	memcpy(to_free, ret, MAX_NAME_LENGTH);
+	array_get(args->arr, &to_free);
+
 	free(to_free);
 	free(args);
-	free(ret);
 	return NULL;
 }

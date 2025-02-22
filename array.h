@@ -10,10 +10,9 @@
 #include <pthread.h>
 
 #define ARRAY_SIZE 8
-#define MAX_NAME_LENGTH sizeof(pthread_t) // int is the type for FDs which we will be storing
 
 typedef struct {
-    char arr[ARRAY_SIZE][MAX_NAME_LENGTH];
+    pthread_t * arr[ARRAY_SIZE];
     int size;
     sem_t mutex;
     sem_t available_items;
@@ -24,10 +23,10 @@ typedef struct {
 int  array_init(array *s);
 
 // place element into the array, block when full
-int  array_put (array *s, char *hostname);
+int  array_put (array *s, pthread_t *thread);
 
 // remove element from the array, block when empty
-int  array_get (array *s, char **hostname);
+int  array_get (array *s, pthread_t **thread);
 
 // free the array's resources
 void array_free(array *s);
