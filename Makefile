@@ -3,14 +3,13 @@
 
 CC = gcc
 
-CLIENT_CFLAGS = -g -Wall
-SERVER_CFLAGS = -g -Wall
+CFLAGS = -g -Wall -pthread -lpthread
 
 default: all
 
 all: server
 
 server: web_server.c
-	$(CC) $(SERVER_CFLAGS) -o web_server web_server.c
+	$(CC) $(CFLAGS) -o web_server web_server.c array.c
 
 # clean:
