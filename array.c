@@ -14,17 +14,29 @@ int  array_init(array *s) {
 int  array_put (array *s, pthread_t *thread) {
     sem_wait(&s->available_items);
       sem_wait(&s->mutex);
-            s->arr[s->size++] = thread;
-            // strncpy(s->arr[s->size++], hostname, MAX_NAME_LENGTH);
+            // s->arr[s->size++] = thread;
+            for (int i = 0; i < ARRAY_SIZE; i++) {
+              if (s->arr[i] == NULL) {
+                s->arr[i] = thread;
+                s->size++;
+                break;
+              }
+            }
       sem_post(&s->mutex);
     sem_post(&s->free_items);
     return 0;
 }
 
-int  array_get (array *s, pthread_t **thread) {
+int  array_get (array *s, pthread_t *thread_id) {
     sem_wait(&s->free_items);
       sem_wait(&s->mutex);
-        *thread = s->arr[--s->size];
+        for (int i = 0; i < ARRAY_SIZE; i++) {
+          if (s->arr[i] == thread_id) {
+            s->arr[i] = NULL;
+            s->size--;
+            break;
+          }
+        }
       sem_post(&s->mutex);
     sem_post(&s->available_items);
     return 0;
@@ -46,7 +58,7 @@ void array_end(array *s, char *signal) {
 }
 
 void print_array(array *s) {
-    for (int i = 0; i < s->size; i++) {
+    for (int i = 0; i < ARRAY_SIZE; i++) {
       printf("[%d]: %p\n", i, (void *) s->arr[i]);
     }
 }

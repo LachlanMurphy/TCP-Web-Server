@@ -9,7 +9,7 @@
 #include <stdio.h>
 #include <pthread.h>
 
-#define ARRAY_SIZE 8
+#define ARRAY_SIZE 20
 
 typedef struct {
     pthread_t * arr[ARRAY_SIZE];
@@ -26,7 +26,7 @@ int  array_init(array *s);
 int  array_put (array *s, pthread_t *thread);
 
 // remove element from the array, block when empty
-int  array_get (array *s, pthread_t **thread);
+int  array_get (array *s, pthread_t *thread_id);
 
 // free the array's resources
 void array_free(array *s);

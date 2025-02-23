@@ -20,9 +20,11 @@
 #include <signal.h>
 #include <pthread.h>
 #include <string.h>
+#include <sys/sendfile.h>
+#include <fcntl.h>
 #include "array.h"
 
-#define BUFFERSIZE 1024
+#define BUFFERSIZE 2048
 #define ROOT_DIR "./www"
 #define INDEX "index.html"
 // HTTP version, status, content type, content length
@@ -35,11 +37,12 @@ void sigint_handler(int sig);
 
 // argument struct for socket_handler function
 typedef struct {
-	int* serverfd;
-	int* clientfd;
+	int serverfd;
+	int clientfd;
     struct sockaddr_in* serveraddr;
     socklen_t* addrlen;
 	array* arr;
+	pthread_t* thread_id;
 } socket_arg_t;
 
 // multi-thread function to handle new socket connections
@@ -146,13 +149,16 @@ int main(int argc, char** argv) {
 		// init arguments for new thread
 		socket_arg_t* socket_arg = malloc(sizeof(socket_arg_t)); // will also be freed later
 		socket_arg->addrlen = &addrlen;
-		socket_arg->clientfd = &new_socket;
+		socket_arg->clientfd = new_socket;
 		socket_arg->serveraddr = &serveraddr;
-		socket_arg->serverfd = &sockfd;
+		socket_arg->serverfd = sockfd;
 		socket_arg->arr = &socks;
 
 		// create thread
 		pthread_create(thread_id, NULL, socket_handler, socket_arg);
+
+		// update args
+		socket_arg->thread_id = thread_id;
 
 		// add new thread to array
 		array_put(&socks, thread_id);
@@ -165,6 +171,8 @@ int main(int argc, char** argv) {
 
 void sigint_handler(int sig) {
 	print_array(&socks);
+	// wait for all sockets to finish computing
+	while (socks.size);
 	array_free(&socks);
 	printf("Server closed on SIGINT\n");
 	exit(0);
@@ -173,11 +181,10 @@ void sigint_handler(int sig) {
 void* socket_handler(void* arg) {
 	socket_arg_t* args = (socket_arg_t *) arg;
 	char buf[BUFFERSIZE];
+	bzero(buf, BUFFERSIZE);
 
 	// read in message
-	read(*args->clientfd, buf, BUFFERSIZE);
-	printf("%s\n", buf);
-	buf[strcspn(buf, "\n")] = '\0';
+	if (read(args->clientfd, buf, BUFFERSIZE) < 0) error("ERROR in reading from socket");
 
 	// parse message
 	char req[3][BUFFERSIZE / 2]; // req[0]=method ; req[1]=URI ; req[2]=version
@@ -195,21 +202,21 @@ void* socket_handler(void* arg) {
 	}
 
 	// version may have a cairraige return on the end, replace with str terminator
-	req[2][strcspn(req[2], "\r\n")] = '\0';
+	if (!parse_err) req[2][strcspn(req[2], "\r\n")] = '\0';
 
 	if (parse_err) {
 		// 400 Bad request
 		sprintf(buf, HEADER, "HTTP/1.1", "400 Bad Request", "text/plain", 0UL);
-		send(*args->clientfd, buf, strlen(buf), 0);
+		send(args->clientfd, buf, strlen(buf), 0);
 	} else if (strncmp(req[0], "GET", strlen("GET"))) { // Check method, only get is allowed
 		// 405 Method Not Allowed
 		sprintf(buf, HEADER, req[2], "405 Method Not Allowed", "text/plain", 0UL);
-		send(*args->clientfd, buf, strlen(buf), 0);
+		send(args->clientfd, buf, strlen(buf), 0);
 	} else if (strncmp("HTTP/1.0", req[2], strlen(req[2]) - 1) &&
 			   strncmp("HTTP/1.1", req[2], strlen(req[2]) - 1)) { // check HTTP version
 		// 505 HTTP Version Not Supported
 		sprintf(buf, HEADER, req[2], "505 HTTP Version Not Supported", "text/plain", 0UL);
-		send(*args->clientfd, buf, strlen(buf), 0);
+		send(args->clientfd, buf, strlen(buf), 0);
 	} else {
 		char file_name[BUFFERSIZE];
 		strncpy(file_name, ROOT_DIR, strlen(ROOT_DIR)+1);
@@ -223,22 +230,25 @@ void* socket_handler(void* arg) {
 
 		// attempt to access file requested
 		if (!access(file_name, F_OK) && !access(file_name, R_OK)) {
-			// file exists, send it
+			// file exists
+
 			// send file
 			FILE* file = fopen(file_name, "r");
-			int n = 0;
 
 			// get file size
 			fseek(file, 0, SEEK_END);
 			unsigned long file_size = ftell(file);
 			fseek(file, 0, SEEK_SET);
 
+			// send the file
 			sprintf(buf, HEADER, req[2], "200 OK", file_types[find_file_type(file_name)], file_size);
-			send(*args->clientfd, buf, strlen(buf), 0);
-			while (1) {
-				n = fread(buf, 1, BUFFERSIZE, file);
-				if (n <= 0) break;
-				send(*args->clientfd, buf, n, 0);
+			send(args->clientfd, buf, strlen(buf), 0);
+
+			off_t offset = 0;
+			int n = 0;
+			while (n < file_size) {
+				n = sendfile(args->clientfd, fileno(file), &offset, file_size);
+				if (n < 0) error("ERROR in sendfile");
 			}
 			fclose(file);
 		} else {
@@ -246,23 +256,24 @@ void* socket_handler(void* arg) {
 			if (access(file_name, F_OK)) {
 				// 404 file not found
 				sprintf(buf, HEADER, req[2], "404 Not Found", "text/plain", 0UL);
-				send(*args->clientfd, buf, strlen(buf), 0);
+				send(args->clientfd, buf, strlen(buf), 0);
 			} else if (access(file_name, R_OK)) {
 				// 403 forbidden
 				sprintf(buf, HEADER, req[2], "403 Forbidden", "text/plain", 0UL);
-				send(*args->clientfd, buf, strlen(buf), 0);
+				send(args->clientfd, buf, strlen(buf), 0);
 			}
 		}
 
 	}
 
-	close(*args->clientfd);
+	// socket no longer needed
+	close(args->clientfd);
 
-	// free up the memory usage now
-	pthread_t* to_free = NULL;
-	array_get(args->arr, &to_free);
+	// remove current thread from global array
+	array_get(args->arr, args->thread_id);
 
-	free(to_free);
+	// free memory alocated by malloc from main thread
+	free(args->thread_id);
 	free(args);
 	return NULL;
 }

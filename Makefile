@@ -9,7 +9,5 @@ default: all
 
 all: server
 
-server: web_server.c
-	$(CC) $(CFLAGS) -o web_server web_server.c array.c
-
-# clean:
+server: server.c
+	$(CC) $(CFLAGS) -o server server.c array.c
