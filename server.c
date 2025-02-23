@@ -29,11 +29,7 @@
 #define INDEX "index.html"
 // HTTP version, status, content type, content length
 #define HEADER "%s %s\r\nContent-Type: %s\r\nContent-Length: %lu\r\n\r\n"
-
 #define FILE_SUF_LEN 8
-
-// sigint handler
-void sigint_handler(int sig);
 
 // argument struct for socket_handler function
 typedef struct {
@@ -58,6 +54,9 @@ void error(char *msg) {
 	perror(msg);
 	exit(1);
 }
+
+// sigint handler
+void sigint_handler(int sig);
 
 // global values
 array socks; // semaphores used, thread safe
@@ -90,8 +89,6 @@ int main(int argc, char** argv) {
     int optval;
     struct sockaddr_in serveraddr;
     socklen_t addrlen = sizeof(serveraddr);
-    // char buf[BUFFERSIZE];
-
 
     /* 
 	* check command line arguments
@@ -100,37 +97,30 @@ int main(int argc, char** argv) {
 		fprintf(stderr, "usage: %s <port>\n", argv[0]);
 		exit(1);
 	}
+	portno = atoi(argv[1]);
 
 	// set up signal handling
 	signal(SIGINT, sigint_handler);
 
 	// initialize shared array
 	array_init(&socks);
-
-	portno = atoi(argv[1]);
-
-    /* 
-	* socket: create the parent socket 
-	*/
-	sockfd = socket(AF_INET, SOCK_STREAM, 0);
-	if (sockfd < 0) error("ERROR opening socket");
+    
+	// socket: create the parent socket 
+	if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) error("ERROR opening socket");
 
     optval = 1;
 	setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (const void *)&optval , sizeof(int));
 
-    /*
-	* build the server's Internet address
-	*/
+    
+	// build the server's Internet address
 	bzero((char *) &serveraddr, sizeof(serveraddr));
 	serveraddr.sin_family = AF_INET;
 	serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
 	serveraddr.sin_port = htons((unsigned short)portno);
 
-    /* 
-	* bind: associate the parent socket with a port 
-	*/
-	if (bind(sockfd, (struct sockaddr *) &serveraddr, addrlen) < 0) 
-        error("ERROR on binding");
+    
+	// bind: associate the parent socket with a port 
+	if (bind(sockfd, (struct sockaddr *) &serveraddr, addrlen) < 0) error("ERROR on binding");
     
 
     // main loop, listen for sockets and deal with them
@@ -165,7 +155,6 @@ int main(int argc, char** argv) {
 
 		// detatch thread so resources are unallocated independent of parent thread
 		pthread_detach(*thread_id);
-		thread_id = NULL;
     }
 }
 
@@ -207,16 +196,16 @@ void* socket_handler(void* arg) {
 	if (parse_err) {
 		// 400 Bad request
 		sprintf(buf, HEADER, "HTTP/1.1", "400 Bad Request", "text/plain", 0UL);
-		send(args->clientfd, buf, strlen(buf), 0);
+		if (send(args->clientfd, buf, strlen(buf), 0) < 0) error("ERROR in send");
 	} else if (strncmp(req[0], "GET", strlen("GET"))) { // Check method, only get is allowed
 		// 405 Method Not Allowed
 		sprintf(buf, HEADER, req[2], "405 Method Not Allowed", "text/plain", 0UL);
-		send(args->clientfd, buf, strlen(buf), 0);
+		if (send(args->clientfd, buf, strlen(buf), 0) < 0) error("ERROR in send");
 	} else if (strncmp("HTTP/1.0", req[2], strlen(req[2]) - 1) &&
 			   strncmp("HTTP/1.1", req[2], strlen(req[2]) - 1)) { // check HTTP version
 		// 505 HTTP Version Not Supported
 		sprintf(buf, HEADER, req[2], "505 HTTP Version Not Supported", "text/plain", 0UL);
-		send(args->clientfd, buf, strlen(buf), 0);
+		if (send(args->clientfd, buf, strlen(buf), 0) < 0) error("ERROR in send");
 	} else {
 		char file_name[BUFFERSIZE];
 		strncpy(file_name, ROOT_DIR, strlen(ROOT_DIR)+1);
@@ -240,10 +229,11 @@ void* socket_handler(void* arg) {
 			unsigned long file_size = ftell(file);
 			fseek(file, 0, SEEK_SET);
 
-			// send the file
+			// send the file header
 			sprintf(buf, HEADER, req[2], "200 OK", file_types[find_file_type(file_name)], file_size);
-			send(args->clientfd, buf, strlen(buf), 0);
+			if (send(args->clientfd, buf, strlen(buf), 0) < 0) error("ERROR in send");
 
+			// send file content
 			off_t offset = 0;
 			int n = 0;
 			while (n < file_size) {
@@ -252,15 +242,15 @@ void* socket_handler(void* arg) {
 			}
 			fclose(file);
 		} else {
-			// check whether it was a permission err or file didnt exist
+			// check whether it was a permission err or file doesn't exist
 			if (access(file_name, F_OK)) {
 				// 404 file not found
 				sprintf(buf, HEADER, req[2], "404 Not Found", "text/plain", 0UL);
-				send(args->clientfd, buf, strlen(buf), 0);
+				if (send(args->clientfd, buf, strlen(buf), 0) < 0) error("ERROR in send");
 			} else if (access(file_name, R_OK)) {
 				// 403 forbidden
 				sprintf(buf, HEADER, req[2], "403 Forbidden", "text/plain", 0UL);
-				send(args->clientfd, buf, strlen(buf), 0);
+				if (send(args->clientfd, buf, strlen(buf), 0) < 0) error("ERROR in send");
 			}
 		}
 
@@ -279,7 +269,7 @@ void* socket_handler(void* arg) {
 }
 
 int find_file_type(char* file_name) {
-	// get suffic of file name
+	// get suffix of file name
 	char* suf = strrchr(file_name, '.');
 	if (!suf || suf == file_name) return 1; // by default do plain text
 
