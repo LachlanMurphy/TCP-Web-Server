@@ -21,7 +21,6 @@
 #include <pthread.h>
 #include <string.h>
 #include <sys/sendfile.h>
-#include <fcntl.h>
 #include "array.h"
 
 #define BUFFERSIZE 2048
@@ -174,7 +173,7 @@ void* socket_handler(void* arg) {
 
 	// read in message
 	if (read(args->clientfd, buf, BUFFERSIZE) < 0) error("ERROR in reading from socket");
-
+	printf("%s", buf);
 	// parse message
 	char req[3][BUFFERSIZE / 2]; // req[0]=method ; req[1]=URI ; req[2]=version
 	char* tmp;
